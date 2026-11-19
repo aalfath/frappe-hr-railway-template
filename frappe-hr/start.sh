@@ -107,9 +107,10 @@ setup_page_stop() {
 VERSION="$(for a in $(cat sites/apps.txt); do printf '%s=%s ' "$a" "$(sed -n 's/^__version__ = "\(.*\)"/\1/p' "apps/$a/$a/__init__.py")"; done)"
 if [ ! -f "sites/$SITE/.railway-installed" ]; then
   : "${ADMIN_PASSWORD:?ADMIN_PASSWORD is required for the first start}"
-  # Never let `new-site --force` drop a database that already holds a Frappe HR site (for example
-  # when the sites volume was replaced): stop and say so instead.
-  if env/bin/python - <<'PY2'
+  # Never let `new-site --force` drop a database that already holds a Frappe HR site when the site
+  # folder is gone (the sites volume was replaced): stop and say so instead. An interrupted first
+  # install still has its site_config.json, so it is simply retried.
+  if [ ! -f "sites/$SITE/site_config.json" ] && env/bin/python - <<'PY2'
 import os, sys, pymysql
 try:
     c = pymysql.connect(host=os.environ["DB_HOST"], port=int(os.environ.get("DB_PORT", "3306")),
@@ -123,7 +124,7 @@ except Exception as e:
     sys.exit(2)
 PY2
   then
-    log "Database $DB_NAME already holds a site, but the sites volume has no site folder."
+    log "Database $DB_NAME already holds a site, but the sites volume has no folder for $SITE."
     log "Refusing to recreate it. Restore the sites volume, or drop the database yourself to start over."
     exit 1
   fi
