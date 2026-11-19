@@ -1,0 +1,45 @@
+# Local test of the Railway layout (not used by Railway).
+# Run: export TEST_DB_ROOT_PASSWORD=... TEST_DB_PASSWORD=... TEST_ADMIN_PASSWORD=... TEST_REDIS_PASSWORD=...
+#      docker compose -f compose.test.yml up --build
+services:
+  mariadb:
+    image: mariadb:11.8.9@sha256:d36f18d65a0459510b8b0f643b226a6d299e3206486e2b64ff20754a6d291707
+    command: [--character-set-server=utf8mb4, --collation-server=utf8mb4_unicode_ci, --skip-character-set-client-handshake, --innodb-snapshot-isolation=OFF]
+    environment: { MARIADB_ROOT_PASSWORD: "${TEST_DB_ROOT_PASSWORD:?}", MARIADB_AUTO_UPGRADE: "1" }
+    volumes: [db:/var/lib/mysql]
+  redis-cache:
+    image: redis:8.2.6@sha256:3055dc25265b0c19ec90a1756dad4e0faff6f79e2557a6ac3d1274e39ee906f6
+    command: [redis-server, --requirepass, "${TEST_REDIS_PASSWORD:?}", --save, "", --appendonly, "no"]
+  redis-queue:
+    image: redis:8.2.6@sha256:3055dc25265b0c19ec90a1756dad4e0faff6f79e2557a6ac3d1274e39ee906f6
+    command: [redis-server, --requirepass, "${TEST_REDIS_PASSWORD:?}", --appendonly, "yes"]
+    volumes: [rq:/data]
+  frappe-hr:
+    build: ./frappe-hr
+    image: her2712/frappe-hr
+    ports: ["8080:8080"]
+    environment:
+      PORT: "8080"
+      DB_HOST: mariadb
+      DB_ROOT_PASSWORD: "${TEST_DB_ROOT_PASSWORD:?}"
+      DB_PASSWORD: "${TEST_DB_PASSWORD:?}"
+      ADMIN_PASSWORD: "${TEST_ADMIN_PASSWORD:?}"
+      REDIS_CACHE_URL: redis://default:${TEST_REDIS_PASSWORD:?}@redis-cache:6379
+      REDIS_QUEUE_URL: redis://default:${TEST_REDIS_PASSWORD:?}@redis-queue:6379
+      SOCKETIO_UPSTREAM: websocket:9000
+    volumes: [sites:/home/frappe/frappe-bench/sites]
+  websocket:
+    build: ./websocket
+    image: her2712/frappe-hr-websocket
+    environment:
+      REDIS_QUEUE_URL: redis://default:${TEST_REDIS_PASSWORD:?}@redis-queue:6379
+      FRAPPE_HR_HOST: frappe-hr
+  scheduler:
+    build: ./scheduler
+    image: her2712/frappe-hr-scheduler
+    environment:
+      DB_HOST: mariadb
+      DB_PASSWORD: "${TEST_DB_PASSWORD:?}"
+      REDIS_CACHE_URL: redis://default:${TEST_REDIS_PASSWORD:?}@redis-cache:6379
+      REDIS_QUEUE_URL: redis://default:${TEST_REDIS_PASSWORD:?}@redis-queue:6379
+volumes: { db: {}, rq: {}, sites: {} }
